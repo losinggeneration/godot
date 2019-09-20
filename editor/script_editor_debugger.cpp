@@ -33,6 +33,7 @@
 #include "core/io/marshalls.h"
 #include "core/project_settings.h"
 #include "core/ustring.h"
+#include "editor/editor_visual_profiler.h"
 #include "editor_node.h"
 #include "editor_profiler.h"
 #include "editor_settings.h"
@@ -776,6 +777,32 @@ void ScriptEditorDebugger::_parse_message(const String &p_msg, const Array &p_da
 		}
 		perf_history.push_front(p);
 		perf_draw->update();
+	} else if (p_msg == "visual_profile") {
+		uint64_t frame = p_data[0];
+		PoolVector<String> names = p_data[1];
+		PoolVector<real_t> values = p_data[2];
+
+		EditorVisualProfiler::Metric metric;
+		metric.areas.resize(names.size());
+		metric.frame_number = frame;
+		metric.valid = true;
+
+		{
+			EditorVisualProfiler::Metric::Area *areas_ptr = metric.areas.ptrw();
+			int metric_count = names.size();
+
+			PoolVector<String>::Read rs = names.read();
+			PoolVector<real_t>::Read rr = values.read();
+
+			for (int i = 0; i < metric_count; i++) {
+
+				areas_ptr[i].name = rs[i];
+				areas_ptr[i].cpu_time = rr[i * 2 + 0];
+				areas_ptr[i].gpu_time = rr[i * 2 + 1];
+			}
+		}
+
+		visual_profiler->add_frame_metric(metric);
 
 	} else if (p_msg == "error") {
 
@@ -1412,6 +1439,24 @@ void ScriptEditorDebugger::_profiler_activate(bool p_enable) {
 	}
 }
 
+void ScriptEditorDebugger::_visual_profiler_activate(bool p_enable) {
+
+	if (!connection.is_valid())
+		return;
+
+	if (p_enable) {
+		profiler_signature.clear();
+		Array msg;
+		msg.push_back("start_visual_profiling");
+		ppeer->put_var(msg);
+
+	} else {
+		Array msg;
+		msg.push_back("stop_visual_profiling");
+		ppeer->put_var(msg);
+	}
+}
+
 void ScriptEditorDebugger::_profiler_seeked() {
 
 	if (!connection.is_valid() || !connection->is_connected_to_host())
@@ -2000,6 +2045,7 @@ void ScriptEditorDebugger::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_expand_errors_list"), &ScriptEditorDebugger::_expand_errors_list);
 	ClassDB::bind_method(D_METHOD("_collapse_errors_list"), &ScriptEditorDebugger::_collapse_errors_list);
 	ClassDB::bind_method(D_METHOD("_profiler_activate"), &ScriptEditorDebugger::_profiler_activate);
+	ClassDB::bind_method(D_METHOD("_visual_profiler_activate"), &ScriptEditorDebugger::_visual_profiler_activate);
 	ClassDB::bind_method(D_METHOD("_profiler_seeked"), &ScriptEditorDebugger::_profiler_seeked);
 	ClassDB::bind_method(D_METHOD("_clear_errors_list"), &ScriptEditorDebugger::_clear_errors_list);
 
@@ -2216,6 +2262,14 @@ ScriptEditorDebugger::ScriptEditorDebugger(EditorNode *p_editor) {
 		tabs->add_child(profiler);
 		profiler->connect("enable_profiling", this, "_profiler_activate");
 		profiler->connect("break_request", this, "_profiler_seeked");
+	}
+
+	{ //frame profiler
+		visual_profiler = memnew(EditorVisualProfiler);
+		visual_profiler->set_name(TTR("Visual Profiler"));
+		tabs->add_child(visual_profiler);
+		visual_profiler->connect("enable_profiling", this, "_visual_profiler_activate");
+		visual_profiler->connect("break_request", this, "_profiler_seeked");
 	}
 
 	{ //monitors

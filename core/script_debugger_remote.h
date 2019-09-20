@@ -59,6 +59,7 @@ class ScriptDebuggerRemote : public ScriptDebugger {
 	float frame_time, idle_time, physics_time, physics_frame_time;
 
 	bool profiling;
+	bool visual_profiling;
 	int max_frame_functions;
 	bool skip_profile_frame;
 	bool reload_all_scripts;
